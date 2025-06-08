@@ -1,0 +1,83 @@
+<script>
+  const USDT_CONTRACTS = {
+    ethereum: {
+      chainId: '0x1',
+      name: 'Ethereum Mainnet',
+      rpc: 'https://mainnet.infura.io/v3/',
+      address: '0xdAC17F958D2ee523a2206206994597C13D831ec7'
+    },
+    bsc: {
+      chainId: '0x38',
+      name: 'Binance Smart Chain',
+      rpc: 'https://bsc-dataseed.binance.org/',
+      address: '0x55d398326f99059fF775485246999027B3197955'
+    },
+    polygon: {
+      chainId: '0x89',
+      name: 'Polygon Mainnet',
+      rpc: 'https://polygon-rpc.com',
+      address: '0x3813e82e6f7098b9583FC0F33a962D02018B6803'
+    }
+  };
+
+  const USDT_ABI = [
+    "function balanceOf(address) view returns (uint256)",
+    "function decimals() view returns (uint8)"
+  ];
+
+  async function connectWallet() {
+    const resultDiv = document.getElementById("result");
+
+    if (!window.ethereum) {
+      alert("Please install MetaMask or open this link inside Trust Wallet.");
+      return;
+    }
+
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum, "any");
+      await provider.send("eth_requestAccounts", []);
+      const signer = provider.getSigner();
+      const userAddress = await signer.getAddress();
+
+      resultDiv.innerHTML = `🔄 Checking USDT balances for <b>${userAddress}</b>...<br><br>`;
+
+      let verified = false;
+      let allBalances = [];
+
+      for (const [key, net] of Object.entries(USDT_CONTRACTS)) {
+        const customProvider = new ethers.providers.JsonRpcProvider(net.rpc);
+        const usdt = new ethers.Contract(net.address, USDT_ABI, customProvider);
+
+        try {
+          const balanceRaw = await usdt.balanceOf(userAddress);
+          const decimals = await usdt.decimals();
+          const balance = parseFloat(ethers.utils.formatUnits(balanceRaw, decimals)).toFixed(2);
+          allBalances.push(`🟢 ${net.name}: <b>${balance} USDT</b>`);
+
+          if (parseFloat(balance) >= 10) {
+            verified = true;
+          }
+        } catch (err) {
+          allBalances.push(`🔴 ${net.name}: <i>Unable to check balance</i>`);
+        }
+      }
+
+      resultDiv.innerHTML += allBalances.join("<br>") + "<br><br>";
+      resultDiv.innerHTML += verified
+        ? `<div class="verified">✅ Verified: You have ≥ 10 USDT on at least one network.</div>`
+        : `<div class="not-verified">❌ Not Verified: You need ≥ 10 USDT on Ethereum, BSC, or Polygon.</div>`;
+    } catch (err) {
+      console.error(err);
+      resultDiv.innerHTML = "❌ Failed to connect wallet or fetch balances.";
+    }
+  }
+
+  // Auto-trigger connection in MetaMask or Trust Wallet in-app browser
+  window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      if (window.ethereum && /MetaMask|Trust/.test(navigator.userAgent)) {
+        connectWallet();
+      }
+    }, 1500);
+  });
+</script>
